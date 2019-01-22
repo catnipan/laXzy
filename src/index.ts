@@ -1,19 +1,22 @@
-type Lazy<T> = () => Iterator<T>;
-type Strict<T> = Array<T>;
+type LazyList<T> = () => Iterator<T>;
+type StrictList<T> = Array<T>;
+
+
+// when cache?
 
 let indexArray: number[] = [1,2,3,4,5];
 
-function lazy<T>(list: Strict<T>): Lazy<T> {
+function lazy<T>(list: StrictList<T>): LazyList<T> {
   return function() {
     return list[Symbol.iterator]();
   };
-};
+}
 
 function range(
   start: number = 1,
   to: number = Infinity,
   gap: number = 1,
-): Lazy<number> {
+): LazyList<number> {
   return function* () {
     for (let i = start; i < to; i += gap) {
       yield i;
@@ -21,7 +24,7 @@ function range(
   };
 }
 
-function replicate<T>(count: number, value: T): Lazy<T> {
+function replicate<T>(count: number, value: T): LazyList<T> {
   return function* () {
     for (let i = 0; i < count; i += 1) {
       yield value;
@@ -29,7 +32,7 @@ function replicate<T>(count: number, value: T): Lazy<T> {
   }
 }
 
-function repeat<T>(value: T): Lazy<T> {
+function repeat<T>(value: T): LazyList<T> {
   return function* () {
     while (true) {
       yield value;
@@ -40,11 +43,11 @@ function repeat<T>(value: T): Lazy<T> {
 // Solved True
 // Solved False
 // Pending
-// function elem<T>(targetValue: T, lazyStreamer: Lazy<T>) {
+// function elem<T>(targetValue: T, LazyListStreamer: LazyList<T>) {
 //   return function* () {
-//     const lazyStream = lazyStreamer();
+//     const LazyListStream = LazyListStreamer();
 //     while (true) {
-//       const { value, done } = lazyStream.next();
+//       const { value, done } = LazyListStream.next();
 //       if (done) {
 //         return false;
 //       }
@@ -55,7 +58,7 @@ function repeat<T>(value: T): Lazy<T> {
 //   }
 // }
 
-function cycle<T>(lazyStreamer: Lazy<T>): Lazy<T> {
+function cycle<T>(lazyStreamer: LazyList<T>): LazyList<T> {
   return function* () {
     while (true) {
       const lazyStream = lazyStreamer();
@@ -70,7 +73,28 @@ function cycle<T>(lazyStreamer: Lazy<T>): Lazy<T> {
   }
 }
 
-function strict<T>(lazyStreamer: Lazy<T>): Strict<T> {
+function concat<T>(lsA: LazyList<T>, lsB: LazyList<T>): LazyList<T> {
+  const la = lsA();
+  const lb = lsB();
+  return cache(function* () {
+    while (true) {
+      const { value, done } = la.next();
+      if (done) {
+        break;
+      }
+      yield value;
+    }
+    while (true) {
+      const { value, done } = lb.next();
+      if (done) {
+        break;
+      }
+      yield value;
+    }
+  });
+}
+
+function strict<T>(lazyStreamer: LazyList<T>): StrictList<T> {
   const lazyStream: Iterator<T> = lazyStreamer();
   const result: T[] = [];
   while (true) {
@@ -82,74 +106,93 @@ function strict<T>(lazyStreamer: Lazy<T>): Strict<T> {
   }
 }
 
-function map<S, T>(mapFunction: (source: S) => T){
-  return function (sourceStreamer: Lazy<S>): Lazy<T> {
-    const sourceStream = sourceStreamer();
-    return function* () {
-      while (true) {
-        const { value, done } = sourceStream.next();
-        if (done) {
-          return;
-        }
-        yield mapFunction(value);
+function cache<T>(streamer: LazyList<T>): LazyList<T> {
+  let isDone = false;
+  const cache: T[] = [];
+  const stream = streamer();
+  return function* cachedStreamer() {
+    for (let i = 0; i < cache.length; i += 1) {
+      yield cache[i];
+    }
+    if (isDone) return;
+    while (true) {
+      const { value, done } = stream.next();
+      if (done) {
+        isDone = true;
+        return;
       }
-    };
-  }
-}
-
-function filter<S>(filterFunction: (source: S) => boolean) {
-  return function (sourceStreamer: Lazy<S>): Lazy<S> {
-    const sourceStream = sourceStreamer();
-    return function* () {
-      while (true) {
-        const { value, done } = sourceStream.next();
-        if (done) {
-          return;
-        }
-        if (filterFunction(value)) {
-          yield value;
-        }
-      }
+      cache.push(value);
+      yield value;
     }
   }
 }
 
-function take<S>(takeCount: number) {
-  return function (sourceStreamer: Lazy<S>): Lazy<S> {
-    const sourceStream = sourceStreamer();
-    return function* () {
-      for (let i = 0; i < takeCount; i += 1) {
-        const { value, done } = sourceStream.next();
-        if (done) {
-          return;
-        }
+function map<S, T>(
+  mapFunction: (source: S) => T,
+  sourceStreamer: LazyList<S>
+) : LazyList<T>{
+  const sourceStream = sourceStreamer();
+  return cache(function* () {
+    while (true) {
+      const { value, done } = sourceStream.next();
+      if (done) {
+        return;
+      }
+      yield mapFunction(value);
+    }
+  });
+}
+
+function filter<S>(
+  filterFunction: (source: S) => boolean,
+  sourceStreamer: LazyList<S>,
+): LazyList<S> {
+  const sourceStream = sourceStreamer();
+  return cache(function* () {
+    while (true) {
+      const { value, done } = sourceStream.next();
+      if (done) {
+        return;
+      }
+      if (filterFunction(value)) {
         yield value;
       }
     }
-  }
+  });
 }
 
-function drop<S>(dropCount: number) {
-  return function (sourceStreamer: Lazy<S>): Lazy<S> {
-    const sourceStream = sourceStreamer();
-    return function* () {
-      let i = dropCount;
-      while (true) {
-        const { value, done } = sourceStream.next();
-        if (done) {
-          return;
-        }
-        if (i > 0) {
-          i -= 1;
-          continue;
-        }
-        yield value;
+function take<S>(takeCount: number, sourceStreamer: LazyList<S>): LazyList<S> {
+  const sourceStream = sourceStreamer();
+  return cache(function* () {
+    for (let i = 0; i < takeCount; i += 1) {
+      const { value, done } = sourceStream.next();
+      if (done) {
+        return;
       }
+      yield value;
+    }
+  });
+}
+
+function drop<S>(dropCount: number, sourceStreamer: LazyList<S>): LazyList<S> {
+  const sourceStream = sourceStreamer();
+  return function* () {
+    let i = dropCount;
+    while (true) {
+      const { value, done } = sourceStream.next();
+      if (done) {
+        return;
+      }
+      if (i > 0) {
+        i -= 1;
+        continue;
+      }
+      yield value;
     }
   }
 }
 
-function zip<A, B>(sourceA: Lazy<A>, sourceB: Lazy<B>): Lazy<[A,B]> {
+function zip<A, B>(sourceA: LazyList<A>, sourceB: LazyList<B>): LazyList<[A,B]> {
   const sourceAStream = sourceA();
   const sourceBStream = sourceB();
   return function* () {
@@ -164,53 +207,32 @@ function zip<A, B>(sourceA: Lazy<A>, sourceB: Lazy<B>): Lazy<[A,B]> {
   }
 }
 
-function sort<S>(sourceStream: Lazy<S>): Lazy<S> {
-  const strictResult: Strict<S> = strict(sourceStream);
-  return function* () {
+function sort<S>(sourceStream: LazyList<S>): LazyList<S> {
+  const StrictListResult: StrictList<S> = strict(sourceStream);
+  return cache(function* () {
     while (true) {
-      if (strictResult.length === 0) {
+      if (StrictListResult.length === 0) {
         return;
       }
-      for (let i = strictResult.length; i > 0; i -= 1) {
-        if (strictResult[i] < strictResult[i - 1]) {
-          const temp = strictResult[i - 1];
-          strictResult[i - 1] = strictResult[i];
-          strictResult[i] = temp;
+      for (let i = StrictListResult.length; i > 0; i -= 1) {
+        if (StrictListResult[i] < StrictListResult[i - 1]) {
+          const temp = StrictListResult[i - 1];
+          StrictListResult[i - 1] = StrictListResult[i];
+          StrictListResult[i] = temp;
         }
       }
-      yield strictResult.shift();
+      yield StrictListResult.shift();
     }
-  }
+  });
 }
 
-function* l1() {
-  yield 1;
-  yield 2;
-  yield 3;
-  yield 4;
-  yield 5;
-}
+// const l0 = cycle(lazy([1,2,3]));
+// const l1 = take(20, l0);
+// const l2 = filter((x: number) => { console.log('call filter', x); return x > 1} , l1);
+// const l3 = map((x: number) => x * 2, l2);
+// const l4 = map((x: number) => x / 2, l2);
+// console.log(strict(l3));
+// console.log(strict(l4));
 
-// let lazy1: Lazy<number> = l1();
-let lazy2: Lazy<number> = lazy([1,2,3,4,5]);
-// let lazy3: Lazy<number> = range(1, 10, 2);
-// let strict3: Strict<number> = strict(lazy3);
-// let lazy4: Lazy<number> = map((x: number) => x * 2)(lazy3);
-// let strict4: Strict<number> = strict(lazy4);
-
-// console.log(strict(map((x: number) => x * 3)(lazy2)));
-// console.log(strict(lazy2));
-// console.log(strict(range(1, 10, 2)));
-// console.log(strict(map((x: number) => x * 2)(range(1, 10))));
-// console.log(strict(l1));
-// console.log(strict(take(10)(filter((x: number) => x % 3 !== 0)(range(1, 100)))));
-// console.log(strict(take(10)(filter((x: number) => x % 3 !== 0)((range())))));
-// let lazyTuple: Lazy<[number, string]> = zip(
-//   range(),
-//   lazy(["a", "x", "sdfas", "dsfe"]),
-// );
-
-// console.log(strict(lazyTuple));
-
-// console.log(strict(take(2)(sort(lazy([5,6,4,2,3])))));
-console.log(strict(take(20)(cycle(lazy([1,3,4,5])))))
+const l5 = concat(lazy([1,4,5,6]), lazy([2,3,7,9]));
+console.log(strict(l5));
