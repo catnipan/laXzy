@@ -107,18 +107,16 @@ function strict<T>(lazyStreamer: LazyList<T>): StrictList<T> {
 }
 
 function cache<T>(streamer: LazyList<T>): LazyList<T> {
-  let isDone = false;
   const cache: T[] = [];
-  const stream = streamer();
+  let stream = streamer();
   return function* cachedStreamer() {
     for (let i = 0; i < cache.length; i += 1) {
       yield cache[i];
     }
-    if (isDone) return;
-    while (true) {
+    while (stream) {
       const { value, done } = stream.next();
       if (done) {
-        isDone = true;
+        stream = undefined;
         return;
       }
       cache.push(value);
@@ -208,22 +206,53 @@ function zip<A, B>(sourceA: LazyList<A>, sourceB: LazyList<B>): LazyList<[A,B]> 
 }
 
 function sort<S>(sourceStream: LazyList<S>): LazyList<S> {
-  const StrictListResult: StrictList<S> = strict(sourceStream);
+  const strictList: StrictList<S> = strict(sourceStream);
   return cache(function* () {
     while (true) {
-      if (StrictListResult.length === 0) {
+      if (strictList.length === 0) {
         return;
       }
-      for (let i = StrictListResult.length; i > 0; i -= 1) {
-        if (StrictListResult[i] < StrictListResult[i - 1]) {
-          const temp = StrictListResult[i - 1];
-          StrictListResult[i - 1] = StrictListResult[i];
-          StrictListResult[i] = temp;
+      for (let i = strictList.length; i > 0; i -= 1) {
+        if (strictList[i] < strictList[i - 1]) {
+          const temp = strictList[i - 1];
+          strictList[i - 1] = strictList[i];
+          strictList[i] = temp;
         }
       }
-      yield StrictListResult.shift();
+      yield strictList.shift();
     }
   });
+}
+
+function sortBy<S>(
+  compareFunc: (a: S, b: S) => number,
+  sourceStream: LazyList<S>
+): LazyList<S> {
+  const strictList: StrictList<S> = strict(sourceStream);
+  return cache(function* () {
+    while (true) {
+      if (strictList.length === 0) {
+        return;
+      }
+      for (let i = strictList.length; i > 0; i -= 1) {
+        if (compareFunc(strictList[i], strictList[i - 1]) < 0) {
+          const temp = strictList[i - 1];
+          strictList[i - 1] = strictList[i];
+          strictList[i] = temp;
+        }
+      }
+      yield strictList.shift();
+    }
+  });
+}
+
+function reverse<S>(sourceStream: LazyList<S>): LazyList<S> {
+  const strictList: StrictList<S> = strict(sourceStream);
+  return function* () {
+    for (let i = strictList.length - 1; i >= 0; i -= 1) {
+      yield strictList[i];
+    }
+  };
 }
 
 // const l0 = cycle(lazy([1,2,3]));
@@ -234,5 +263,19 @@ function sort<S>(sourceStream: LazyList<S>): LazyList<S> {
 // console.log(strict(l3));
 // console.log(strict(l4));
 
-const l5 = concat(lazy([1,4,5,6]), lazy([2,3,7,9]));
-console.log(strict(l5));
+// const l5 = concat(lazy([1,4,5,6]), lazy([2,3,7,9]));
+// console.log(strict(l5));
+
+const l0 = map((x: number) => x * 2, range(1, 100000));
+const l00 = filter((x: number) => x % 3 !== 0, l0);
+const l1 = take(1000, l00);
+
+console.time('evalL1');
+const s1 = strict(l1);
+console.timeEnd('evalL1');
+
+// console.log(strict(reverse(l1)));
+
+// console.time('evalD1');
+// const x = Array(100000).fill(0).map((_, idx) => idx * 2).filter(x => x % 3 !== 0);
+// console.timeEnd('evalD1');
