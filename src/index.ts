@@ -217,6 +217,18 @@ function intersperse<S>(inter: S) {
   }
 }
 
+function iterate<S>(f: (s: S) => S) {
+  return function (start: S): LazyList<S> {
+    return cache(function* () {
+      let curr = start;
+      while (true) {
+        yield curr;
+        curr = f(curr);
+      }
+    })
+  }
+}
+
 function nth(index: number) {
   return function<S> (sourceStreamer: LazyList<S>): S  {
     const sourceStream = sourceStreamer();
@@ -345,7 +357,8 @@ const lb = flatMap((x: number) => lazy([x, x * 2, x * 3]))(la);
 
 // console.log(strict(replicate(5)('a')));
 // console.log(nth(4)(range(0,10,2)))
-console.log(strict(intersperse('s')(lazy(['a','b','c','d']))));
+// console.log(strict(intersperse('s')(lazy(['a','b','c','d']))));
+console.log(strict(take(10)(iterate((x: number) => x * 2)(1))));
 
 // console.time('evalD1');
 // const x = Array(100000).fill(0).map((_, idx) => idx * 2).filter(x => x % 3 !== 0);
