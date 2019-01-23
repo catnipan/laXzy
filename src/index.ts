@@ -201,6 +201,38 @@ function take(takeCount: number) {
   }
 }
 
+function intersperse<S>(inter: S) {
+  return function(sourceStreamer: LazyList<S>): LazyList<S> {
+    const sourceStream = sourceStreamer();
+    return cache(function* () {
+      const { value } = sourceStream.next();
+      yield value;
+      while (true) {
+        const { value, done } = sourceStream.next();
+        if (done) return;
+        yield inter;
+        yield value;
+      }
+    })
+  }
+}
+
+function nth(index: number) {
+  return function<S> (sourceStreamer: LazyList<S>): S  {
+    const sourceStream = sourceStreamer();
+    let i = 0;
+    while (true) {
+      const { value, done } = sourceStream.next();
+      if (done) return undefined;
+      if (i === index) return value;
+      i += 1;
+    }
+  }
+}
+
+const head: <S>(s: LazyList<S>) => S = nth(0);
+const tail: <S>(s: LazyList<S>) => LazyList<S> = drop(1);
+
 function drop(dropCount: number) {
   return function<S>(sourceStreamer: LazyList<S>): LazyList<S> {
     const sourceStream = sourceStreamer();
@@ -311,7 +343,9 @@ function reverse<S>(sourceStream: LazyList<S>): LazyList<S> {
 const la = range(0, 10);
 const lb = flatMap((x: number) => lazy([x, x * 2, x * 3]))(la);
 
-console.log(strict(replicate(5)('a')));
+// console.log(strict(replicate(5)('a')));
+// console.log(nth(4)(range(0,10,2)))
+console.log(strict(intersperse('s')(lazy(['a','b','c','d']))));
 
 // console.time('evalD1');
 // const x = Array(100000).fill(0).map((_, idx) => idx * 2).filter(x => x % 3 !== 0);
