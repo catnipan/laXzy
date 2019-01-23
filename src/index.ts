@@ -33,10 +33,12 @@ function range(
   };
 }
 
-function replicate<T>(count: number, value: T): LazyList<T> {
-  return function* () {
-    for (let i = 0; i < count; i += 1) {
-      yield value;
+function replicate(count: number) {
+  return function<T> (value: T): LazyList<T> {
+    return function* () {
+      for (let i = 0; i < count; i += 1) {
+        yield value;
+      }
     }
   }
 }
@@ -144,6 +146,24 @@ function map<S, T>(mapFunction: (source: S) => T){
           return;
         }
         yield mapFunction(value);
+      }
+    }); 
+  }
+}
+
+function flatMap<S, T>(mapFunction: (source: S) => LazyList<T>){
+  return function (sourceStreamer: LazyList<S>): LazyList<T> {
+    const sourceStream = sourceStreamer();
+    return cache(function* () {
+      while (true) {
+        const { value, done } = sourceStream.next();
+        if (done) return;
+        const valueStream = mapFunction(value)();
+        while (true) {
+          const { value, done } = valueStream.next();
+          if (done) break;
+          yield value;
+        }
       }
     }); 
   }
@@ -289,10 +309,9 @@ function reverse<S>(sourceStream: LazyList<S>): LazyList<S> {
 // console.log(strict(reverse(l1)));
 
 const la = range(0, 10);
-const lb = range(20, 0);
-const lab = take(10)(zip(la)(lb));
+const lb = flatMap((x: number) => lazy([x, x * 2, x * 3]))(la);
 
-console.log(strict(lab));
+console.log(strict(replicate(5)('a')));
 
 // console.time('evalD1');
 // const x = Array(100000).fill(0).map((_, idx) => idx * 2).filter(x => x % 3 !== 0);
